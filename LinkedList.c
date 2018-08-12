@@ -1,9 +1,10 @@
-#include <gcc-lib-funcs/gcc-lib-funcs.h>
-#include <Memory/kmalloc.h>
-#include <Utility/LinkedList.h>
+//#include <gcc-lib-funcs/gcc-lib-funcs.h>
+#include <string.h>
+#include <stdlib.h>
+#include "LinkedList.h"
 
 static LList_item_t* LList_create_item(void* item) {
-	LList_item_t* item_container = (LList_item_t*)memset(kmalloc(sizeof(LList_item_t)), (int)NULL, sizeof(LList_item_t));
+	LList_item_t* item_container = (LList_item_t*)memset(malloc(sizeof(LList_item_t)), 0, sizeof(LList_item_t));
 	item_container->item = item;
 	return item_container;
 };
@@ -25,14 +26,14 @@ static LList_item_t* LList_get_container_end(LList_t* list) {
 }
 
 LList_t* LList_create_list() {
-	return (LList_t*)memset(kmalloc(sizeof(LList_t)), (int)NULL, sizeof(LList_t));
+	return (LList_t*)memset(malloc(sizeof(LList_t)), 0, sizeof(LList_t));
 }
 
 void LList_delete_list(LList_t* list) {
 	for (size_t i = 0; i < LList_get_length(list); i++) {
 		LList_remove_item(list, 0);
 	}
-	kfree(list);
+	free(list);
 }
 
 void LList_add_item_to_head(LList_t* list, void* i) {
@@ -73,7 +74,7 @@ void LList_remove_item(LList_t* list, size_t index) {
 		if (ditem->prev != NULL) {
 			ditem->prev->next = ditem->next;
 		};
-		kfree(ditem);
+		free(ditem);
 		list->length = list->length - 1;
 	};
 };
