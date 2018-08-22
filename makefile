@@ -1,3 +1,5 @@
+CC=c99
+
 .PHONY: all
 
 all: 

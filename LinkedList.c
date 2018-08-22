@@ -1,4 +1,3 @@
-//#include <gcc-lib-funcs/gcc-lib-funcs.h>
 #include <string.h>
 #include <stdlib.h>
 #include "LinkedList.h"

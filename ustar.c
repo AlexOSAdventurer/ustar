@@ -1,14 +1,21 @@
 #include "ustar.h"
 
+/* Sets the default block size, which is 512 according to the standard */
 #define USTAR_BLOCK_SIZE 512
 #define USTAR_HEADER_SIZE USTAR_BLOCK_SIZE
 
 static ustar_alloc_func ustar_afunc;
 static ustar_free_func ustar_ffunc;
 
+/* The USTAR magic string - used in checks and upon serialization */
+static const char ustar_str[] = "ustar\00000";
+
+/* Various error strings used internally */
 static const char checksum_ck_error[] = "Checksum check failed!";
+static const char ustar_str_error[] = "Ustar entry does not appear to be ustar!";
 static const char etc_error[] = "Some error.... happened?";
 
+/* Various utility functions */
 static uint64_t _round_up_to_512(uint64_t num) { 
 	uint64_t res = num & 0xFFFFFFFFFFFFFE00;
 	if (res < num) { 
@@ -21,7 +28,8 @@ static uint64_t _parse_octal(const uint8_t* data, size_t size) {
 	uint64_t n = 0;
 	const unsigned char* c = data;
 	while (size > 0) {
-		if ((*c) == 0x20) { 
+		/* Some USTAR octals are space terminated. Weird. */ 
+		if ((*c) == ' ') { 
 			break;
 		}; 
 		n *= 8;
@@ -51,7 +59,7 @@ static ustar_data_t* _generate_octal_str(uint64_t n, size_t l) {
 	return res;
 };
 
-ustar_type_t _parse_type(uint8_t* data) { 
+static ustar_type_t _parse_type(uint8_t* data) { 
 	unsigned char c = (unsigned char)(*data);
 	if (c == '0') { 
 		return ustar_type_file;
@@ -66,6 +74,7 @@ static char _serialize_type(ustar_type_t type) {
 	return '5';
 }
 
+/* Sets the memory management functions */
 void ustar_init(ustar_alloc_func afunc, ustar_free_func ffunc) { 
 	ustar_afunc = afunc;
 	ustar_ffunc = ffunc;
@@ -79,6 +88,9 @@ void* ustar_alloc(size_t size) {
 void ustar_free(void* ptr) {
 	ustar_ffunc(ptr);
 };
+
+
+/* Utility functions for creating new data structures */
 
 ustar_t* ustar_new_archive(void) { 
 	ustar_t* res = ustar_alloc(sizeof(ustar_t));
@@ -118,12 +130,15 @@ ustar_mdata_t* ustar_new_mdata(void) {
 	return res;
 }
 
+/* Lets you add a new entry to an archive */
 void ustar_add_entry(ustar_t* archive, ustar_entry_t* entry) { 
 	ustar_entries_t* entries = archive->entries;
 	LList_add_item_to_end(entries->entries, entry);
 }
 
 /* Read */
+
+/* More utility functions used internally */
 static uint64_t _generate_checksum(ustar_t* archive, const uint8_t* ptr) {  
 	uint64_t res = 0;
 	uint64_t orig_sum;
@@ -141,6 +156,10 @@ static uint64_t _generate_checksum(ustar_t* archive, const uint8_t* ptr) {
 	}
 	return res;
 };
+
+static int _ustar_check_ustar_value(uint8_t* data) { 
+	return memcmp(data, ustar_str, 8) != 0;
+}
 
 static void _ustar_parse_mdata(ustar_t* archive, uint8_t* data, ustar_entry_t* entry) { 
 	const uint8_t* orig = data;
@@ -166,7 +185,6 @@ static void _ustar_parse_mdata(ustar_t* archive, uint8_t* data, ustar_entry_t* e
 	mdata->mtime = _parse_octal(data, 12);
 	data += 12;
 
-	//memcpy(&(mdata->cksum), data, 8);
 	mdata->cksum = _generate_checksum(archive, (const uint8_t*)orig);
 	data += 8;
 
@@ -179,7 +197,10 @@ static void _ustar_parse_mdata(ustar_t* archive, uint8_t* data, ustar_entry_t* e
 	memcpy(linkname->ptr, data, 100);
 	data += 100;
 
-	//IGNORE USTAR STUFF - DON'T CHECK!
+	if (_ustar_check_ustar_value(data)) { 
+		archive->status = 1;
+		archive->error_str = ustar_str_error;
+	}
 	data += 8;
 	
 	ustar_data_t* uname = ustar_new_data();
@@ -234,6 +255,9 @@ static void _ustar_check_null_end_blocks(ustar_t* archive, uint8_t* ptr) {
 	}
 };
 
+/* Takes in a ustar_data_t block and parses it into an archive if possible. 
+   On success, the status field of the archive will be 0. Otherwise, it will 
+   be 1, and the error_str field will be set to a message - it's NULL otherwise. */
 ustar_t* ustar_parse(ustar_data_t* data) { 
 	ustar_t* res = ustar_new_archive();
 	uint8_t* data_start = data->ptr;
@@ -258,6 +282,9 @@ ustar_t* ustar_parse(ustar_data_t* data) {
 	return res;
 }
 
+/* Call this to yield an entry in the archive - each new call will yield the next entry. 
+   Returns NULL when there are no more entries. You can then iterate over the archive 
+   again if you want. */
 ustar_entry_t* ustar_iterate(ustar_t* archive) { 
 	ustar_entries_t* entries = archive->entries;
 	ustar_entry_t* entry = LList_get_item(entries->entries, entries->index);
@@ -271,6 +298,8 @@ ustar_entry_t* ustar_iterate(ustar_t* archive) {
 }
 
 /* Update */
+/* The below four static functions are internal utilities. Don't worry about them */
+
 static uint64_t _compute_archive_size(ustar_t* archive) { 
 	uint64_t res = 0;
 	ustar_entry_t* entry = ustar_iterate(archive);
@@ -325,10 +354,8 @@ static uint8_t* _serialize_mdata(uint8_t* ptr, ustar_mdata_t* mdata) {
 	memcpy(ptr, mdata->linkname->ptr, 100);
 	ptr += 100;
 	
-	memcpy(ptr, "ustar\0", 6);
-	ptr += 6;
-	memcpy(ptr, "00", 2);
-	ptr += 2;
+	memcpy(ptr, ustar_str, 8);
+	ptr += 8;
 	
 	memcpy(ptr, mdata->uname->ptr, 32);
 	ptr += 32;
@@ -363,6 +390,7 @@ static void _write_end_null_blocks(uint8_t* ptr) {
 	memset(ptr, 0, (USTAR_HEADER_SIZE * 2));
 }
 
+/*Takes an archive and serializes it into a ustar_data_t type, which you can use to write to disk or whatever */
 ustar_data_t* ustar_serialize(ustar_t* archive) { 
 	ustar_data_t* res = ustar_new_data();
 	res->size = _compute_archive_size(archive);
@@ -376,11 +404,12 @@ ustar_data_t* ustar_serialize(ustar_t* archive) {
 		cptr = _serialize_content(cptr, content);
 		entry = ustar_iterate(archive);
 	}
-	_write_end_null_blocks(cptr);
+	_write_end_null_blocks(cptr); // USTAR requires that two 512 0 blocks are at the end of every archive
 	return res;
 }
 
 /* Destroy */ 
+/* This stuff is just a remove entry function and various utility functions for freeing data */
 static int _ustar_remove_search(void* item, void* data) { 
 	return item == data;
 };
