@@ -267,7 +267,6 @@ ustar_t* ustar_parse(ustar_data_t* data) {
 	if (res->status != 0) { 
 		return res;
 	}
-	data_end -= 1024;
 	while (data_cur < data_end) { 
 		ustar_entry_t* nentry = ustar_new_entry();
 		_ustar_parse_mdata(res, data_cur, nentry);
@@ -390,7 +389,7 @@ static void _write_end_null_blocks(uint8_t* ptr) {
 	memset(ptr, 0, (USTAR_HEADER_SIZE * 2));
 }
 
-/*Takes an archive and serializes it into a ustar_data_t type, which you can use to write to disk or whatever */
+/* Takes an archive and serializes it into a ustar_data_t type, which you can use to write to disk or whatever */
 ustar_data_t* ustar_serialize(ustar_t* archive) { 
 	ustar_data_t* res = ustar_new_data();
 	res->size = _compute_archive_size(archive);
